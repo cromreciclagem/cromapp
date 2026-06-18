@@ -1,0 +1,69 @@
+  - name: Setup Node.js
+    uses: actions/setup-node@v4
+    with:
+      node-version: '18'
+
+  - name: Cache node modules
+    uses: actions/cache@v4
+    with:
+      path: ~/.npm
+      key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+      restore-keys: |
+        ${{ runner.os }}-node-
+
+  - name: Install npm dependencies
+    run: npm ci || true
+
+  - name: Prepare www directory
+    run: |
+      mkdir -p www/vendor
+      echo "Downloading vendor files..."
+      # React
+      curl -L -o www/vendor/react.production.min.js https://unpkg.com/react@18/umd/react.production.min.js
+      curl -L -o www/vendor/react-dom.production.min.js https://unpkg.com/react-dom@18/umd/react-dom.production.min.js
+      # Babel
+      curl -L -o www/vendor/babel.min.js https://unpkg.com/@babel/standalone@7/babel.min.js
+      # Tailwind
+      curl -L -o www/vendor/tailwind-cdn.js https://cdn.tailwindcss.com
+      # LocalForage
+      curl -L -o www/vendor/localforage.min.js https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js
+      # Lucide
+      curl -L -o www/vendor/lucide.min.js https://unpkg.com/lucide@latest
+
+  - name: Initialize Capacitor (if needed)
+    run: |
+      npx cap --version || npm i @capacitor/cli @capacitor/core --no-save
+      npx cap init "CROM" com.cromreciclagem.cromapp --web-dir=www || true
+
+  - name: Setup Java
+    uses: actions/setup-java@v4
+    with:
+      distribution: temurin
+      java-version: '11'
+
+  - name: Setup Android SDK
+    uses: r0adkll/setup-android@v2
+    with:
+      api-levels: 31
+      target: android-31
+      ndk: false
+
+  - name: Add Android platform
+    run: |
+      npx cap add android || true
+      npx cap sync android
+
+  - name: Build Android (Gradle)
+    working-directory: android
+    env:
+      JAVA_HOME: ${{ steps.setup-java.outputs.java-home }}
+    run: |
+      chmod +x ./gradlew
+      ./gradlew assembleDebug -Porg.gradle.jvmargs='-Xmx3g' || true
+
+  - name: Upload APK artifact
+    if: always()
+    uses: actions/upload-artifact@v4
+    with:
+      name: crom-app-apk
+      path: android/app/build/outputs/apk/debug/*.apk
